@@ -19,7 +19,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "org.lineageos.twelve"
+        applicationId = "org.calyxos.twelve"
         minSdk = 30
         targetSdk = 35
         versionCode = 1
