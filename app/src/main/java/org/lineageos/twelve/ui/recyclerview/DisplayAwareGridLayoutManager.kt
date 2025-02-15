@@ -2,6 +2,7 @@
  * SPDX-FileCopyrightText: 2024 The LineageOS Project
  * SPDX-License-Identifier: Apache-2.0
  */
+
 package org.lineageos.twelve.ui.recyclerview
 
 import android.content.Context
@@ -25,7 +26,7 @@ class DisplayAwareGridLayoutManager @JvmOverloads constructor(
          * Maximum thumbnail size, useful for high density screens.
          */
         private val MAX_THUMBNAIL_SIZE
-            get() = 256.px
+            get() = 256
 
         private enum class Orientation {
             VERTICAL,

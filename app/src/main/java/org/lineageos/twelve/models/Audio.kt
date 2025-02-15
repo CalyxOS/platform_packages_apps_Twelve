@@ -1,19 +1,21 @@
 /*
- * SPDX-FileCopyrightText: 2024 The LineageOS Project
+ * SPDX-FileCopyrightText: 2024-2025 The LineageOS Project
  * SPDX-License-Identifier: Apache-2.0
  */
 
 package org.lineageos.twelve.models
 
+import android.content.Context
 import android.net.Uri
 import androidx.media3.common.MediaMetadata
 import androidx.media3.exoplayer.source.MediaSource
+import org.lineageos.twelve.R
 import org.lineageos.twelve.ext.buildMediaItem
+import org.lineageos.twelve.ext.toByteArray
 
 /**
  * An audio.
  *
- * @param uri The URI of the audio
  * @param playbackUri A URI that is understood by Media3 to play the audio. If required, this can be
  *   equal to [uri] and a proper [MediaSource.Factory] can be implemented
  * @param mimeType The MIME type of the audio
@@ -32,14 +34,15 @@ import org.lineageos.twelve.ext.buildMediaItem
  */
 data class Audio(
     override val uri: Uri,
+    override val thumbnail: Thumbnail?,
     val playbackUri: Uri,
-    val mimeType: String,
-    val title: String,
+    val mimeType: String?,
+    val title: String?,
     val type: Type,
-    val durationMs: Long,
-    val artistUri: Uri,
+    val durationMs: Long?,
+    val artistUri: Uri?,
     val artistName: String?,
-    val albumUri: Uri,
+    val albumUri: Uri?,
     val albumTitle: String?,
     val discNumber: Int?,
     val trackNumber: Int?,
@@ -75,6 +78,8 @@ data class Audio(
 
     override fun areContentsTheSame(other: Audio) = compareValuesBy(
         this, other,
+        Audio::thumbnail,
+        Audio::playbackUri,
         Audio::mimeType,
         Audio::title,
         Audio::type,
@@ -90,9 +95,9 @@ data class Audio(
         Audio::year,
     ) == 0
 
-    override fun toMedia3MediaItem() = buildMediaItem(
-        title = title,
-        mediaId = "$AUDIO_MEDIA_ITEM_ID_PREFIX${uri}",
+    override fun toMedia3MediaItem(context: Context) = buildMediaItem(
+        title = title ?: context.getString(R.string.audio_unknown),
+        mediaId = uri.toString(),
         isPlayable = true,
         isBrowsable = false,
         mediaType = type.media3MediaType,
@@ -101,12 +106,145 @@ data class Audio(
         genre = genreName,
         sourceUri = playbackUri,
         mimeType = mimeType,
+        artworkData = thumbnail?.bitmap?.toByteArray(),
+        artworkType = thumbnail?.type?.media3Value,
+        artworkUri = thumbnail?.uri,
         discNumber = discNumber,
         trackNumber = trackNumber,
         durationMs = durationMs,
     )
 
-    companion object {
-        const val AUDIO_MEDIA_ITEM_ID_PREFIX = "[audio]"
+    class Builder(uri: Uri) : MediaItem.Builder<Builder, Audio>(uri) {
+        private var playbackUri: Uri? = null
+        private var mimeType: String? = null
+        private var title: String? = null
+        private var type: Type = Type.MUSIC
+        private var durationMs: Long? = null
+        private var artistUri: Uri? = null
+        private var artistName: String? = null
+        private var albumUri: Uri? = null
+        private var albumTitle: String? = null
+        private var discNumber: Int? = null
+        private var trackNumber: Int? = null
+        private var genreUri: Uri? = null
+        private var genreName: String? = null
+        private var year: Int? = null
+
+        /**
+         * @see Audio.playbackUri
+         */
+        fun setPlaybackUri(playbackUri: Uri?) = this.also {
+            this.playbackUri = playbackUri
+        }
+
+        /**
+         * @see Audio.mimeType
+         */
+        fun setMimeType(mimeType: String?) = this.also {
+            this.mimeType = mimeType
+        }
+
+        /**
+         * @see Audio.title
+         */
+        fun setTitle(title: String?) = this.also {
+            this.title = title
+        }
+
+        /**
+         * @see Audio.type
+         */
+        fun setType(type: Type) = this.also {
+            this.type = type
+        }
+
+        /**
+         * @see Audio.durationMs
+         */
+        fun setDurationMs(durationMs: Long?) = this.also {
+            this.durationMs = durationMs
+        }
+
+        /**
+         * @see Audio.artistUri
+         */
+        fun setArtistUri(artistUri: Uri?) = this.also {
+            this.artistUri = artistUri
+        }
+
+        /**
+         * @see Audio.artistName
+         */
+        fun setArtistName(artistName: String?) = this.also {
+            this.artistName = artistName
+        }
+
+        /**
+         * @see Audio.albumUri
+         */
+        fun setAlbumUri(albumUri: Uri?) = this.also {
+            this.albumUri = albumUri
+        }
+
+        /**
+         * @see Audio.albumTitle
+         */
+        fun setAlbumTitle(albumTitle: String?) = this.also {
+            this.albumTitle = albumTitle
+        }
+
+        /**
+         * @see Audio.discNumber
+         */
+        fun setDiscNumber(discNumber: Int?) = this.also {
+            this.discNumber = discNumber
+        }
+
+        /**
+         * @see Audio.trackNumber
+         */
+        fun setTrackNumber(trackNumber: Int?) = this.also {
+            this.trackNumber = trackNumber
+        }
+
+        /**
+         * @see Audio.genreUri
+         */
+        fun setGenreUri(genreUri: Uri?) = this.also {
+            this.genreUri = genreUri
+        }
+
+        /**
+         * @see Audio.genreName
+         */
+        fun setGenreName(genreName: String?) = this.also {
+            this.genreName = genreName
+        }
+
+        /**
+         * @see Audio.year
+         */
+        fun setYear(year: Int?) = this.also {
+            this.year = year
+        }
+
+        override fun build() = Audio(
+            uri = uri,
+            thumbnail = thumbnail,
+            playbackUri = playbackUri ?: uri,
+            mimeType = mimeType,
+            title = title,
+            type = type,
+            durationMs = durationMs,
+            artistUri = artistUri,
+            artistName = artistName,
+            albumUri = albumUri,
+            albumTitle = albumTitle,
+            discNumber = discNumber,
+            trackNumber = trackNumber,
+            genreUri = genreUri,
+            genreName = genreName,
+            year = year,
+        )
     }
 }

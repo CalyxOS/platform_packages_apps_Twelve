@@ -78,6 +78,8 @@ class MediaItemBottomSheetDialogFragment : BottomSheetDialogFragment(
         get() = requireArguments().getBoolean(ARG_FROM_ARTIST)
     private val fromGenre: Boolean
         get() = requireArguments().getBoolean(ARG_FROM_GENRE)
+    private val fromNowPlaying: Boolean
+        get() = requireArguments().getBoolean(ARG_FROM_NOW_PLAYING)
     private val playlistUri: Uri?
         get() = requireArguments().getParcelable(ARG_PLAYLIST_URI, Uri::class)
 
@@ -214,34 +216,26 @@ class MediaItemBottomSheetDialogFragment : BottomSheetDialogFragment(
                             }
                         )
 
-                        when (mediaItem) {
-                            is Album -> mediaItem.thumbnail
-                            is Artist -> mediaItem.thumbnail
-                            is Audio -> null
-                            is Genre -> mediaItem.thumbnail
-                            is Playlist -> mediaItem.thumbnail
-                        }.let { thumbnail ->
-                            thumbnail?.also {
-                                thumbnailImageView.load(thumbnail) {
-                                    listener(
-                                        onCancel = {
-                                            placeholderImageView.isVisible = true
-                                            thumbnailImageView.isVisible = false
-                                        },
-                                        onSuccess = { _, _ ->
-                                            placeholderImageView.isVisible = false
-                                            thumbnailImageView.isVisible = true
-                                        },
-                                        onError = { _, _ ->
-                                            placeholderImageView.isVisible = true
-                                            thumbnailImageView.isVisible = false
-                                        }
-                                    )
-                                }
-                            } ?: run {
-                                placeholderImageView.isVisible = true
-                                thumbnailImageView.isVisible = false
+                        mediaItem.thumbnail?.also { thumbnail ->
+                            thumbnailImageView.load(thumbnail) {
+                                listener(
+                                    onCancel = {
+                                        placeholderImageView.isVisible = true
+                                        thumbnailImageView.isVisible = false
+                                    },
+                                    onSuccess = { _, _ ->
+                                        placeholderImageView.isVisible = false
+                                        thumbnailImageView.isVisible = true
+                                    },
+                                    onError = { _, _ ->
+                                        placeholderImageView.isVisible = true
+                                        thumbnailImageView.isVisible = false
+                                    }
+                                )
                             }
+                        } ?: run {
+                            placeholderImageView.isVisible = true
+                            thumbnailImageView.isVisible = false
                         }
                     }
 
@@ -265,9 +259,9 @@ class MediaItemBottomSheetDialogFragment : BottomSheetDialogFragment(
             viewModel.tracks.collectLatest { tracks ->
                 val isNotEmpty = tracks.isNotEmpty()
 
-                playNowListItem.isVisible = isNotEmpty
-                addToQueueListItem.isVisible = isNotEmpty
-                playNextListItem.isVisible = isNotEmpty
+                playNowListItem.isVisible = isNotEmpty && !fromNowPlaying
+                addToQueueListItem.isVisible = isNotEmpty && !fromNowPlaying
+                playNextListItem.isVisible = isNotEmpty && !fromNowPlaying
             }
         }
 
@@ -298,6 +292,7 @@ class MediaItemBottomSheetDialogFragment : BottomSheetDialogFragment(
         private const val ARG_FROM_ALBUM = "from_album"
         private const val ARG_FROM_ARTIST = "from_artist"
         private const val ARG_FROM_GENRE = "from_genre"
+        private const val ARG_FROM_NOW_PLAYING = "from_now_playing"
         private const val ARG_PLAYLIST_URI = "playlist_uri"
 
         /**
@@ -307,6 +302,7 @@ class MediaItemBottomSheetDialogFragment : BottomSheetDialogFragment(
          * @param fromAlbum Whether this fragment was opened from an album
          * @param fromArtist Whether this fragment was opened from an artist
          * @param fromGenre Whether this fragment was opened from a genre
+         * @param fromNowPlaying Whether this fragment was opened from the now playing fragment
          * @param playlistUri If the audio has been opened from a playlist, the URI of the playlist
          */
         fun createBundle(
@@ -315,6 +311,7 @@ class MediaItemBottomSheetDialogFragment : BottomSheetDialogFragment(
             fromAlbum: Boolean = false,
             fromArtist: Boolean = false,
             fromGenre: Boolean = false,
+            fromNowPlaying: Boolean = false,
             playlistUri: Uri? = null,
         ) = bundleOf(
             ARG_URI to uri,
@@ -322,6 +319,7 @@ class MediaItemBottomSheetDialogFragment : BottomSheetDialogFragment(
             ARG_FROM_ALBUM to fromAlbum,
             ARG_FROM_ARTIST to fromArtist,
             ARG_FROM_GENRE to fromGenre,
+            ARG_FROM_NOW_PLAYING to fromNowPlaying,
             ARG_PLAYLIST_URI to playlistUri,
         )
     }

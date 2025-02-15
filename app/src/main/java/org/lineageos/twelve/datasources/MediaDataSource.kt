@@ -12,6 +12,7 @@ import org.lineageos.twelve.models.Album
 import org.lineageos.twelve.models.Artist
 import org.lineageos.twelve.models.ArtistWorks
 import org.lineageos.twelve.models.Audio
+import org.lineageos.twelve.models.DataSourceInformation
 import org.lineageos.twelve.models.Genre
 import org.lineageos.twelve.models.GenreContent
 import org.lineageos.twelve.models.MediaItem
@@ -27,20 +28,20 @@ typealias MediaRequestStatus<T> = RequestStatus<T, MediaError>
  */
 interface MediaDataSource {
     /**
-     * Check whether this data source can handle the given media item.
+     * Get the current status of the data source.
      *
-     * @param mediaItemUri The media item to check
-     * @return Whether this data source can handle the given media item
+     * @return [RequestStatus.Success] with a list of [DataSourceInformation] if everything is fine,
+     *   else [RequestStatus.Error]
      */
-    fun isMediaItemCompatible(mediaItemUri: Uri): Boolean
+    fun status(): Flow<MediaRequestStatus<List<DataSourceInformation>>>
 
     /**
      * Given a compatible media item URI, get its type.
      *
      * @param mediaItemUri The media item to check
-     * @return [RequestStatus.Success] if success, [RequestStatus.Error] with an error otherwise
+     * @return A [MediaType] if success, null if this media item cannot be handled
      */
-    suspend fun mediaTypeOf(mediaItemUri: Uri): MediaRequestStatus<MediaType>
+    suspend fun mediaTypeOf(mediaItemUri: Uri): MediaType?
 
     /**
      * Home page content.

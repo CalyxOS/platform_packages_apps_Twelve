@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 The LineageOS Project
+ * SPDX-FileCopyrightText: 2024-2025 The LineageOS Project
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.util.Log
 import android.view.View
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.os.bundleOf
 import androidx.core.view.ViewCompat
@@ -67,7 +68,11 @@ class AlbumFragment : Fragment(R.layout.fragment_album) {
     private val playAllExtendedFloatingActionButton by getViewProperty<ExtendedFloatingActionButton>(
         R.id.playAllExtendedFloatingActionButton
     )
+    private val playButtonsLinearLayout by getViewProperty<LinearLayout>(R.id.playButtonsLinearLayout)
     private val recyclerView by getViewProperty<RecyclerView>(R.id.recyclerView)
+    private val shufflePlayExtendedFloatingActionButton by getViewProperty<ExtendedFloatingActionButton>(
+        R.id.shufflePlayExtendedFloatingActionButton
+    )
     private val thumbnailImageView by getViewProperty<ImageView>(R.id.thumbnailImageView)
     private val toolbar by getViewProperty<MaterialToolbar>(R.id.toolbar)
     private val tracksInfoTextView by getViewProperty<TextView>(R.id.tracksInfoTextView)
@@ -84,39 +89,6 @@ class AlbumFragment : Fragment(R.layout.fragment_album) {
 
             override fun ViewHolder.onPrepareView() {
                 view.setLeadingView(R.layout.audio_track_index)
-
-                view.setOnClickListener {
-                    when (val item = item) {
-                        is AlbumViewModel.AlbumContent.AudioItem -> {
-                            viewModel.playAlbum(item.audio)
-
-                            findNavController().navigateSafe(
-                                R.id.action_albumFragment_to_fragment_now_playing
-                            )
-                        }
-
-                        else -> {}
-                    }
-                }
-
-                view.setOnLongClickListener {
-                    when (val item = item) {
-                        is AlbumViewModel.AlbumContent.AudioItem -> {
-                            findNavController().navigateSafe(
-                                R.id.action_albumFragment_to_fragment_media_item_bottom_sheet_dialog,
-                                MediaItemBottomSheetDialogFragment.createBundle(
-                                    item.audio.uri,
-                                    item.audio.mediaType,
-                                    fromAlbum = true,
-                                )
-                            )
-
-                            true
-                        }
-
-                        else -> false
-                    }
-                }
             }
 
             override fun ViewHolder.onBindView(item: AlbumViewModel.AlbumContent) {
@@ -135,6 +107,26 @@ class AlbumFragment : Fragment(R.layout.fragment_album) {
                     }
 
                     is AlbumViewModel.AlbumContent.AudioItem -> {
+                        view.setOnClickListener {
+                            viewModel.playAlbum(item.audio)
+
+                            findNavController().navigateSafe(
+                                R.id.action_albumFragment_to_fragment_now_playing
+                            )
+                        }
+                        view.setOnLongClickListener {
+                            findNavController().navigateSafe(
+                                R.id.action_albumFragment_to_fragment_media_item_bottom_sheet_dialog,
+                                MediaItemBottomSheetDialogFragment.createBundle(
+                                    item.audio.uri,
+                                    item.audio.mediaType,
+                                    fromAlbum = true,
+                                )
+                            )
+
+                            true
+                        }
+
                         item.audio.trackNumber?.also {
                             view.leadingIconImage = null
                             trackTextView.text = getString(
@@ -151,9 +143,9 @@ class AlbumFragment : Fragment(R.layout.fragment_album) {
                         item.audio.artistName?.also {
                             view.supportingText = it
                         } ?: view.setSupportingText(R.string.artist_unknown)
-                        view.trailingSupportingText = TimestampFormatter.formatTimestampMillis(
-                            item.audio.durationMs
-                        )
+                        view.trailingSupportingText = item.audio.durationMs?.let {
+                            TimestampFormatter.formatTimestampMillis(it)
+                        }
                         view.isClickable = true
                         view.isLongClickable = true
                     }
@@ -223,7 +215,7 @@ class AlbumFragment : Fragment(R.layout.fragment_album) {
         }
 
         ViewCompat.setOnApplyWindowInsetsListener(
-            playAllExtendedFloatingActionButton
+            playButtonsLinearLayout
         ) { v, windowInsets ->
             val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
 
@@ -236,11 +228,33 @@ class AlbumFragment : Fragment(R.layout.fragment_album) {
         }
 
         toolbar.setupWithNavController(findNavController())
+        toolbar.inflateMenu(R.menu.fragment_album_toolbar)
+        toolbar.setOnMenuItemClickListener {
+            when (it.itemId) {
+                R.id.addToQueue -> {
+                    viewModel.addToQueue()
+                    true
+                }
+
+                R.id.playNext -> {
+                    viewModel.playNext()
+                    true
+                }
+
+                else -> false
+            }
+        }
 
         recyclerView.adapter = adapter
 
         playAllExtendedFloatingActionButton.setOnClickListener {
             viewModel.playAlbum()
+
+            findNavController().navigateSafe(R.id.action_albumFragment_to_fragment_now_playing)
+        }
+
+        shufflePlayExtendedFloatingActionButton.setOnClickListener {
+            viewModel.shufflePlayAlbum()
 
             findNavController().navigateSafe(R.id.action_albumFragment_to_fragment_now_playing)
         }
@@ -293,10 +307,12 @@ class AlbumFragment : Fragment(R.layout.fragment_album) {
                                 artistNameTextView.text = artistName
                             } ?: artistNameTextView.setText(R.string.artist_unknown)
                             artistNameTextView.setOnClickListener {
-                                findNavController().navigateSafe(
-                                    R.id.action_albumFragment_to_fragment_artist,
-                                    ArtistFragment.createBundle(album.artistUri)
-                                )
+                                album.artistUri?.let { artistUri ->
+                                    findNavController().navigateSafe(
+                                        R.id.action_albumFragment_to_fragment_artist,
+                                        ArtistFragment.createBundle(artistUri)
+                                    )
+                                }
                             }
 
                             album.year?.also { year ->
@@ -307,7 +323,7 @@ class AlbumFragment : Fragment(R.layout.fragment_album) {
                             }
 
                             val totalDurationMs = audios.sumOf { audio ->
-                                audio.durationMs
+                                audio.durationMs ?: 0L
                             }
                             val totalDurationMinutes = (totalDurationMs / 1000 / 60).toInt()
 
@@ -350,8 +366,15 @@ class AlbumFragment : Fragment(R.layout.fragment_album) {
                     recyclerView.isVisible = !isEmpty
                     noElementsNestedScrollView.isVisible = isEmpty
                     when (isEmpty) {
-                        true -> playAllExtendedFloatingActionButton.hide()
-                        false -> playAllExtendedFloatingActionButton.show()
+                        true -> {
+                            playAllExtendedFloatingActionButton.hide()
+                            shufflePlayExtendedFloatingActionButton.hide()
+                        }
+
+                        false -> {
+                            playAllExtendedFloatingActionButton.show()
+                            shufflePlayExtendedFloatingActionButton.show()
+                        }
                     }
                 }
             }

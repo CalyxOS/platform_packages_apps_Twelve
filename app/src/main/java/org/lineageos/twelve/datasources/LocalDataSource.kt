@@ -28,6 +28,7 @@ import org.lineageos.twelve.models.Artist
 import org.lineageos.twelve.models.ArtistWorks
 import org.lineageos.twelve.models.Audio
 import org.lineageos.twelve.models.ColumnIndexCache
+import org.lineageos.twelve.models.DataSourceInformation
 import org.lineageos.twelve.models.Genre
 import org.lineageos.twelve.models.GenreContent
 import org.lineageos.twelve.models.LocalizedString
@@ -69,6 +70,12 @@ class LocalDataSource(
     private val genresUri = MediaStore.Audio.Genres.getContentUri(volumeName)
     private val audiosUri = MediaStore.Audio.Media.getContentUri(volumeName)
 
+    private val albumsArtUri = MediaStore.AUTHORITY_URI.buildUpon()
+        .appendPath(volumeName)
+        .appendPath("audio")
+        .appendPath(AUDIO_ALBUMART)
+        .build()
+
     private val mapAlbum = { columnIndexCache: ColumnIndexCache ->
         val albumId = columnIndexCache.getLong(MediaStore.Audio.AudioColumns._ID)
         val album = columnIndexCache.getString(MediaStore.Audio.AlbumColumns.ALBUM)
@@ -79,16 +86,20 @@ class LocalDataSource(
         val uri = ContentUris.withAppendedId(albumsUri, albumId)
         val artistUri = ContentUris.withAppendedId(artistsUri, artistId)
 
-        val thumbnail = Thumbnail(uri = uri, type = Thumbnail.Type.FRONT_COVER)
+        val albumArtUri = ContentUris.withAppendedId(albumsArtUri, albumId)
 
-        Album(
-            uri,
-            album.takeIf { it != MediaStore.UNKNOWN_STRING },
-            artistUri,
-            artist.takeIf { it != MediaStore.UNKNOWN_STRING },
-            lastYear.takeIf { it != 0 },
-            thumbnail,
-        )
+        val thumbnail = Thumbnail.Builder()
+            .setUri(albumArtUri)
+            .setType(Thumbnail.Type.FRONT_COVER)
+            .build()
+
+        Album.Builder(uri)
+            .setThumbnail(thumbnail)
+            .setTitle(album.takeIf { it != MediaStore.UNKNOWN_STRING })
+            .setArtistUri(artistUri)
+            .setArtistName(artist.takeIf { it != MediaStore.UNKNOWN_STRING })
+            .setYear(lastYear.takeIf { it != 0 })
+            .build()
     }
 
     private val mapArtist = { columnIndexCache: ColumnIndexCache ->
@@ -97,13 +108,9 @@ class LocalDataSource(
 
         val uri = ContentUris.withAppendedId(artistsUri, artistId)
 
-        val thumbnail = Thumbnail(uri = uri, type = Thumbnail.Type.BAND_ARTIST_LOGO)
-
-        Artist(
-            uri,
-            artist.takeIf { it != MediaStore.UNKNOWN_STRING },
-            thumbnail,
-        )
+        Artist.Builder(uri)
+            .setName(artist.takeIf { it != MediaStore.UNKNOWN_STRING })
+            .build()
     }
 
     private val mapGenre = { columnIndexCache: ColumnIndexCache ->
@@ -112,10 +119,9 @@ class LocalDataSource(
 
         val uri = ContentUris.withAppendedId(genresUri, genreId)
 
-        Genre(
-            uri,
-            name,
-        )
+        Genre.Builder(uri)
+            .setName(name)
+            .build()
     }
 
     private val mapAudio = { columnIndexCache: ColumnIndexCache ->
@@ -161,34 +167,37 @@ class LocalDataSource(
             }
         } ?: (null to null)
 
-        Audio(
-            uri,
-            uri,
-            mimeType,
-            title,
-            audioType,
-            duration,
-            artistUri,
-            artist.takeIf { it != MediaStore.UNKNOWN_STRING },
-            albumUri,
-            album.takeIf { it != MediaStore.UNKNOWN_STRING },
-            discNumber,
-            discTrack,
-            genreUri,
-            genre,
-            year.takeIf { it != 0 },
-        )
+        val albumArtUri = uri.buildUpon()
+            .appendPath(AUDIO_ALBUMART)
+            .build()
+
+        val thumbnail = Thumbnail.Builder()
+            .setUri(albumArtUri)
+            .setType(Thumbnail.Type.FRONT_COVER)
+            .build()
+
+        Audio.Builder(uri)
+            .setThumbnail(thumbnail)
+            .setPlaybackUri(uri)
+            .setMimeType(mimeType)
+            .setTitle(title)
+            .setType(audioType)
+            .setDurationMs(duration)
+            .setArtistUri(artistUri)
+            .setArtistName(artist.takeIf { it != MediaStore.UNKNOWN_STRING })
+            .setAlbumUri(albumUri)
+            .setAlbumTitle(album.takeIf { it != MediaStore.UNKNOWN_STRING })
+            .setDiscNumber(discNumber)
+            .setTrackNumber(discTrack)
+            .setGenreUri(genreUri)
+            .setGenreName(genre)
+            .setYear(year.takeIf { it != 0 })
+            .build()
     }
 
-    override fun isMediaItemCompatible(mediaItemUri: Uri) = listOf(
-        albumsUri,
-        artistsUri,
-        genresUri,
-        audiosUri,
-        playlistsBaseUri,
-    ).any {
-        mediaItemUri.toString().startsWith(it.toString())
-    }
+    override fun status() = flowOf(
+        RequestStatus.Success<_, MediaError>(listOf<DataSourceInformation>())
+    )
 
     override suspend fun mediaTypeOf(mediaItemUri: Uri) = with(mediaItemUri.toString()) {
         when {
@@ -198,9 +207,7 @@ class LocalDataSource(
             startsWith(audiosUri.toString()) -> MediaType.AUDIO
             startsWith(playlistsBaseUri.toString()) -> MediaType.PLAYLIST
             else -> null
-        }?.let {
-            RequestStatus.Success<_, MediaError>(it)
-        } ?: RequestStatus.Error(MediaError.NOT_FOUND)
+        }
     }
 
     override fun activity() = combine(
@@ -217,8 +224,7 @@ class LocalDataSource(
                 lastPlayed.map {
                     ActivityTab(
                         "last_played",
-                        LocalizedString(
-                            "Last played",
+                        LocalizedString.StringResIdLocalizedString(
                             R.string.activity_last_played,
                         ),
                         it,
@@ -227,8 +233,7 @@ class LocalDataSource(
                 mostPlayed.map {
                     ActivityTab(
                         "most_played_albums",
-                        LocalizedString(
-                            "Most played albums",
+                        LocalizedString.StringResIdLocalizedString(
                             R.string.activity_most_played_albums
                         ),
                         it,
@@ -237,8 +242,7 @@ class LocalDataSource(
                 albums.map {
                     ActivityTab(
                         "random_albums",
-                        LocalizedString(
-                            "Random albums",
+                        LocalizedString.StringResIdLocalizedString(
                             R.string.activity_random_albums
                         ),
                         it.shuffled(Random(now.dayOfYear)),
@@ -247,8 +251,7 @@ class LocalDataSource(
                 artists.map {
                     ActivityTab(
                         "random_artists",
-                        LocalizedString(
-                            "Random artists",
+                        LocalizedString.StringResIdLocalizedString(
                             R.string.activity_random_artists
                         ),
                         it.shuffled(Random(now.dayOfYear)),
@@ -257,8 +260,7 @@ class LocalDataSource(
                 genres.map {
                     ActivityTab(
                         "random_genres",
-                        LocalizedString(
-                            "Random genres",
+                        LocalizedString.StringResIdLocalizedString(
                             R.string.activity_random_genres
                         ),
                         it.shuffled(Random(now.dayOfYear)),
@@ -589,7 +591,7 @@ class LocalDataSource(
             ).mapEachRow(mapAudio)
         ) { genres, appearsInAlbums, audios ->
             val genre = genres.firstOrNull() ?: when (genreId) {
-                0L -> Genre(genreUri, null)
+                0L -> Genre.Builder(genreUri).build()
                 else -> null
             }
 
@@ -791,7 +793,7 @@ class LocalDataSource(
                             MediaStore.Audio.AlbumColumns.ALBUM_ID eq Query.ARG
                         },
                         ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS to listOf(
-                            ContentUris.parseId(audio.albumUri).toString()
+                            ContentUris.parseId(audio.albumUri!!).toString()
                         ).toTypedArray(),
                     )
                 ).mapEachRow(mapAlbum).mapLatest { albums ->
@@ -806,6 +808,9 @@ class LocalDataSource(
     }
 
     companion object {
+        // packages/providers/MediaProvider/src/com/android/providers/media/LocalUriMatcher.java
+        private const val AUDIO_ALBUMART = "albumart"
+
         private const val LAST_PLAYED_KEY = "local"
 
         private val albumsProjection = arrayOf(
@@ -870,9 +875,9 @@ class LocalDataSource(
             .authority(PLAYLISTS_AUTHORITY)
             .build()
 
-        private fun org.lineageos.twelve.database.entities.Playlist.toModel() = Playlist(
-            ContentUris.withAppendedId(playlistsBaseUri, id),
-            name,
-        )
+        private fun org.lineageos.twelve.database.entities.Playlist.toModel() =
+            Playlist.Builder(ContentUris.withAppendedId(playlistsBaseUri, id))
+                .setName(name)
+                .build()
     }
 }

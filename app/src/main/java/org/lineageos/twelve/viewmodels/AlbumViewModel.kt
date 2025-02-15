@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 The LineageOS Project
+ * SPDX-FileCopyrightText: 2024-2025 The LineageOS Project
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
+import org.lineageos.twelve.ext.applicationContext
 import org.lineageos.twelve.models.Audio
 import org.lineageos.twelve.models.RequestStatus
 import org.lineageos.twelve.models.UniqueItem
@@ -37,6 +38,29 @@ class AlbumViewModel(application: Application) : TwelveViewModel(application) {
             viewModelScope,
             SharingStarted.WhileSubscribed(),
             RequestStatus.Loading()
+        )
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val tracks = album
+        .mapLatest {
+            when (it) {
+                is RequestStatus.Loading -> null
+                is RequestStatus.Success -> it.data.second.sortedWith(
+                    compareBy(
+                        { audio -> audio.discNumber ?: 0 },
+                        Audio::trackNumber,
+                    )
+                )
+
+                is RequestStatus.Error -> listOf()
+            }
+        }
+        .filterNotNull()
+        .flowOn(Dispatchers.IO)
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(),
+            listOf()
         )
 
     sealed interface AlbumContent : UniqueItem<AlbumContent> {
@@ -65,43 +89,34 @@ class AlbumViewModel(application: Application) : TwelveViewModel(application) {
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val albumContent = album
+    val albumContent = tracks
         .mapLatest {
-            when (it) {
-                is RequestStatus.Loading -> null
-
-                is RequestStatus.Success -> {
-                    val discToTracks = it.data.second.groupBy { audio ->
-                        audio.discNumber
-                    }
-
-                    val hideHeaders = with(discToTracks.keys) {
-                        size == 1 && firstOrNull() == 1
-                    }
-
-                    mutableListOf<AlbumContent>().apply {
-                        discToTracks.keys.sortedBy { disc ->
-                            disc ?: 0
-                        }.forEach { discNumber ->
-                            discNumber?.takeUnless { hideHeaders }?.let { i ->
-                                add(AlbumContent.DiscHeader(i))
-                            }
-
-                            discToTracks[discNumber]?.let { tracks ->
-                                addAll(
-                                    tracks.map { audio ->
-                                        AlbumContent.AudioItem(audio)
-                                    }
-                                )
-                            }
-                        }
-                    }.toList()
-                }
-
-                is RequestStatus.Error -> listOf()
+            val discToTracks = it.groupBy { audio ->
+                audio.discNumber
             }
+
+            val hideHeaders = with(discToTracks.keys) {
+                size == 1 && firstOrNull() == 1
+            }
+
+            mutableListOf<AlbumContent>().apply {
+                discToTracks.keys.sortedBy { disc ->
+                    disc ?: 0
+                }.forEach { discNumber ->
+                    discNumber?.takeUnless { hideHeaders }?.let { i ->
+                        add(AlbumContent.DiscHeader(i))
+                    }
+
+                    discToTracks[discNumber]?.let { tracks ->
+                        addAll(
+                            tracks.map { audio ->
+                                AlbumContent.AudioItem(audio)
+                            }
+                        )
+                    }
+                }
+            }.toList()
         }
-        .filterNotNull()
         .flowOn(Dispatchers.IO)
         .stateIn(
             viewModelScope,
@@ -118,7 +133,7 @@ class AlbumViewModel(application: Application) : TwelveViewModel(application) {
 
                 is RequestStatus.Success -> {
                     it.data.second
-                        .map { audio -> audio.mimeType }
+                        .mapNotNull { audio -> audio.mimeType }
                         .distinct()
                         .takeIf { mimeTypes -> mimeTypes.size <= 2 }
                         ?.mapNotNull { mimeType -> MimeUtils.mimeTypeToDisplayName(mimeType) }
@@ -141,10 +156,43 @@ class AlbumViewModel(application: Application) : TwelveViewModel(application) {
     }
 
     fun playAlbum(startFrom: Audio? = null) {
-        albumContent.value.mapNotNull {
-            (it as? AlbumContent.AudioItem)?.audio
-        }.takeUnless { it.isEmpty() }?.let { audios ->
+        tracks.value.takeUnless { it.isEmpty() }?.let { audios ->
             playAudio(audios, startFrom?.let { audios.indexOf(it) } ?: 0)
+        }
+    }
+
+    fun shufflePlayAlbum() {
+        tracks.value.takeUnless { it.isEmpty() }?.let { audios ->
+            playAudio(audios.shuffled(), 0)
+        }
+    }
+
+    fun addToQueue() {
+        tracks.value.takeUnless { it.isEmpty() }?.let { audios ->
+            mediaController.value?.apply {
+                addMediaItems(audios.map { it.toMedia3MediaItem(applicationContext) })
+
+                // If the added items are the only one, play them
+                if (mediaItemCount == audios.count()) {
+                    play()
+                }
+            }
+        }
+    }
+
+    fun playNext() {
+        tracks.value.takeUnless { it.isEmpty() }?.let { audios ->
+            mediaController.value?.apply {
+                addMediaItems(
+                    currentMediaItemIndex + 1,
+                    audios.map { it.toMedia3MediaItem(applicationContext) },
+                )
+
+                // If the added items are the only one, play them
+                if (mediaItemCount == audios.count()) {
+                    play()
+                }
+            }
         }
     }
 }

@@ -26,6 +26,7 @@ import org.lineageos.twelve.models.Album
 import org.lineageos.twelve.models.Artist
 import org.lineageos.twelve.models.ArtistWorks
 import org.lineageos.twelve.models.Audio
+import org.lineageos.twelve.models.DataSourceInformation
 import org.lineageos.twelve.models.Genre
 import org.lineageos.twelve.models.GenreContent
 import org.lineageos.twelve.models.LocalizedString
@@ -91,9 +92,42 @@ class JellyfinDataSource(
      */
     private val _playlistsChanged = MutableStateFlow(Any())
 
-    override fun isMediaItemCompatible(mediaItemUri: Uri) = mediaItemUri.toString().startsWith(
-        dataSourceBaseUri.toString()
-    )
+    override fun status() = suspend {
+        client.getSystemInfo().toRequestStatus {
+            listOfNotNull(
+                serverName?.takeIf { it.isNotBlank() }?.let {
+                    DataSourceInformation(
+                        "server_name",
+                        LocalizedString.StringResIdLocalizedString(R.string.jellyfin_server_name),
+                        LocalizedString.StringLocalizedString(it)
+                    )
+                },
+                version?.takeIf { it.isNotBlank() }?.let {
+                    DataSourceInformation(
+                        "version",
+                        LocalizedString.StringResIdLocalizedString(R.string.jellyfin_version),
+                        LocalizedString.StringLocalizedString(it)
+                    )
+                },
+                productName?.takeIf { it.isNotBlank() }?.let {
+                    DataSourceInformation(
+                        "product_name",
+                        LocalizedString.StringResIdLocalizedString(R.string.jellyfin_product_name),
+                        LocalizedString.StringLocalizedString(it)
+                    )
+                },
+                operatingSystem?.takeIf { it.isNotBlank() }?.let {
+                    DataSourceInformation(
+                        "operating_system",
+                        LocalizedString.StringResIdLocalizedString(
+                            R.string.jellyfin_operating_system,
+                        ),
+                        LocalizedString.StringLocalizedString(it)
+                    )
+                },
+            )
+        }
+    }.asFlow()
 
     override suspend fun mediaTypeOf(mediaItemUri: Uri) = with(mediaItemUri.toString()) {
         when {
@@ -103,9 +137,7 @@ class JellyfinDataSource(
             startsWith(genresUri.toString()) -> MediaType.GENRE
             startsWith(playlistsUri.toString()) -> MediaType.PLAYLIST
             else -> null
-        }?.let {
-            RequestStatus.Success<_, MediaError>(it)
-        } ?: RequestStatus.Error(MediaError.NOT_FOUND)
+        }
     }
 
     override fun activity() = lastPlayedItems().mapLatest { lastPlayedRs ->
@@ -113,10 +145,7 @@ class JellyfinDataSource(
             listOf(
                 ActivityTab(
                     "last_played",
-                    LocalizedString(
-                        "Last played",
-                        R.string.activity_last_played
-                    ),
+                    LocalizedString.StringResIdLocalizedString(R.string.activity_last_played),
                     lastPlayed
                 ),
             ).filter { it.items.isNotEmpty() }
@@ -292,58 +321,61 @@ class JellyfinDataSource(
                 .let { RequestStatus.Success<Unit, MediaError>(Unit) }
         }
 
-    private fun Item.toMediaItemAlbum() = Album(
-        uri = getAlbumUri(id.toString()),
-        title = name,
-        artistUri = getArtistUri(id.toString()),
-        artistName = artists?.firstOrNull(),
-        year = productionYear,
-        thumbnail = Thumbnail(
-            uri = Uri.parse(client.getAlbumThumbnail(id)),
-        ),
-    )
+    private fun Item.toMediaItemAlbum() = Album.Builder(getAlbumUri(id.toString()))
+        .setThumbnail(
+            Thumbnail.Builder()
+                .setUri(Uri.parse(client.getAlbumThumbnail(id)))
+                .build()
+        )
+        .setTitle(name)
+        .setArtistUri(getArtistUri(id.toString()))
+        .setArtistName(artists?.firstOrNull())
+        .setYear(productionYear)
+        .build()
 
-    private fun Item.toMediaItemArtist() = Artist(
-        uri = getArtistUri(id.toString()),
-        name = name,
-        thumbnail = Thumbnail(
-            uri = Uri.parse(client.getArtistThumbnail(id)),
-        ),
-    )
+    private fun Item.toMediaItemArtist() = Artist.Builder(getArtistUri(id.toString()))
+        .setThumbnail(
+            Thumbnail.Builder()
+                .setUri(Uri.parse(client.getArtistThumbnail(id)))
+                .build()
+        )
+        .setName(name)
+        .build()
 
-    private fun Item.toMediaItemAudio() = Audio(
-        uri = getAudioUri(id.toString()),
-        title = name ?: "",
-        artistUri = getArtistUri(id.toString()),
-        artistName = artists?.firstOrNull(),
-        albumUri = getAlbumUri(id.toString()),
-        playbackUri = Uri.parse(client.getAudioPlaybackUrl(id)),
-        mimeType = container ?: sourceType ?: "",
-        type = Audio.Type.MUSIC,
-        durationMs = runTimeTicks?.let { it / 10000 } ?: 0,
-        albumTitle = album,
-        discNumber = parentIndexNumber,
-        trackNumber = indexNumber,
-        genreUri = getGenreUri(id.toString()),
-        genreName = genres?.firstOrNull(),
-        year = productionYear,
-    )
+    private fun Item.toMediaItemAudio() = Audio.Builder(getAudioUri(id.toString()))
+        .setPlaybackUri(Uri.parse(client.getAudioPlaybackUrl(id)))
+        .setMimeType(container ?: sourceType)
+        .setTitle(name)
+        .setType(Audio.Type.MUSIC)
+        .setDurationMs(runTimeTicks?.let { it / 10000 })
+        .setArtistUri(getArtistUri(id.toString()))
+        .setArtistName(artists?.firstOrNull())
+        .setAlbumUri(getAlbumUri(id.toString()))
+        .setAlbumTitle(album)
+        .setDiscNumber(parentIndexNumber)
+        .setTrackNumber(indexNumber)
+        .setGenreUri(getGenreUri(id.toString()))
+        .setGenreName(genres?.firstOrNull())
+        .setYear(productionYear)
+        .build()
 
-    private fun Item.toMediaItemGenre() = Genre(
-        uri = getGenreUri(id.toString()),
-        name = name,
-        thumbnail = Thumbnail(
-            uri = Uri.parse(client.getGenreThumbnail(id)),
-        ),
-    )
+    private fun Item.toMediaItemGenre() = Genre.Builder(getGenreUri(id.toString()))
+        .setThumbnail(
+            Thumbnail.Builder()
+                .setUri(Uri.parse(client.getGenreThumbnail(id)))
+                .build()
+        )
+        .setName(name)
+        .build()
 
-    private fun Item.toMediaItemPlaylist() = Playlist(
-        uri = getPlaylistUri(id.toString()),
-        name = name ?: "",
-        thumbnail = Thumbnail(
-            uri = Uri.parse(client.getPlaylistThumbnail(id)),
-        ),
-    )
+    private fun Item.toMediaItemPlaylist() = Playlist.Builder(getPlaylistUri(id.toString()))
+        .setThumbnail(
+            Thumbnail.Builder()
+                .setUri(Uri.parse(client.getPlaylistThumbnail(id)))
+                .build()
+        )
+        .setName(name)
+        .build()
 
     private fun getAlbumUri(albumId: String) = albumsUri.buildUpon()
         .appendPath(albumId)
@@ -378,7 +410,7 @@ class JellyfinDataSource(
     private fun lastPlayedItems() = lastPlayedAudio().flatMapLatest { audioRs ->
         audioRs.fold(
             onSuccess = { audio ->
-                val albumId = UUID.fromString(audio.albumUri.lastPathSegment!!)
+                val albumId = UUID.fromString(audio.albumUri!!.lastPathSegment!!)
                 suspend {
                     client.getAlbum(albumId).toRequestStatus { toMediaItemAlbum() }
                 }.asFlow().mapLatest { albumRs ->

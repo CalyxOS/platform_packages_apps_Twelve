@@ -27,6 +27,7 @@ import org.lineageos.twelve.models.Album
 import org.lineageos.twelve.models.Artist
 import org.lineageos.twelve.models.ArtistWorks
 import org.lineageos.twelve.models.Audio
+import org.lineageos.twelve.models.DataSourceInformation
 import org.lineageos.twelve.models.Genre
 import org.lineageos.twelve.models.GenreContent
 import org.lineageos.twelve.models.LocalizedString
@@ -35,10 +36,12 @@ import org.lineageos.twelve.models.Playlist
 import org.lineageos.twelve.models.ProviderArgument
 import org.lineageos.twelve.models.ProviderArgument.Companion.requireArgument
 import org.lineageos.twelve.models.RequestStatus
+import org.lineageos.twelve.models.RequestStatus.Companion.map
 import org.lineageos.twelve.models.SortingRule
 import org.lineageos.twelve.models.SortingStrategy
 import org.lineageos.twelve.models.Thumbnail
 import org.lineageos.twelve.utils.toRequestStatus
+import org.lineageos.twelve.utils.toResult
 
 /**
  * Subsonic based data source.
@@ -82,9 +85,64 @@ class SubsonicDataSource(
      */
     private val _playlistsChanged = MutableStateFlow(Any())
 
-    override fun isMediaItemCompatible(mediaItemUri: Uri) = mediaItemUri.toString().startsWith(
-        dataSourceBaseUri.toString()
-    )
+    override fun status() = suspend {
+        val ping = subsonicClient.ping().toRequestStatus { this }
+        val license = subsonicClient.getLicense().toResult { this }
+
+        ping.map {
+            listOfNotNull(
+                DataSourceInformation(
+                    "version",
+                    LocalizedString.StringResIdLocalizedString(
+                        R.string.subsonic_version,
+                    ),
+                    LocalizedString.StringResIdLocalizedString(
+                        R.string.subsonic_version_format,
+                        listOf(it.version.major, it.version.minor, it.version.revision)
+                    )
+                ),
+                it.type?.let { type ->
+                    DataSourceInformation(
+                        "server_type",
+                        LocalizedString.StringResIdLocalizedString(
+                            R.string.subsonic_server_type,
+                        ),
+                        LocalizedString.StringLocalizedString(type)
+                    )
+                },
+                it.serverVersion?.let { serverVersion ->
+                    DataSourceInformation(
+                        "server_version",
+                        LocalizedString.StringResIdLocalizedString(
+                            R.string.subsonic_server_version,
+                        ),
+                        LocalizedString.StringLocalizedString(serverVersion)
+                    )
+                },
+                it.openSubsonic?.let { openSubsonic ->
+                    DataSourceInformation(
+                        "supports_opensubsonic",
+                        LocalizedString.StringResIdLocalizedString(
+                            R.string.subsonic_supports_opensubsonic,
+                        ),
+                        LocalizedString.of(openSubsonic)
+                    )
+                },
+                license?.let { lic ->
+                    DataSourceInformation(
+                        "license",
+                        LocalizedString.StringResIdLocalizedString(R.string.subsonic_license),
+                        LocalizedString.StringResIdLocalizedString(
+                            when (lic.valid) {
+                                true -> R.string.subsonic_license_valid
+                                false -> R.string.subsonic_license_invalid
+                            }
+                        )
+                    )
+                },
+            )
+        }
+    }.asFlow()
 
     override suspend fun mediaTypeOf(mediaItemUri: Uri) = with(mediaItemUri.toString()) {
         when {
@@ -94,9 +152,7 @@ class SubsonicDataSource(
             startsWith(genresUri.toString()) -> MediaType.GENRE
             startsWith(playlistsUri.toString()) -> MediaType.PLAYLIST
             else -> null
-        }?.let {
-            RequestStatus.Success<_, MediaError>(it)
-        } ?: RequestStatus.Error(MediaError.NOT_FOUND)
+        }
     }
 
     override fun activity() = suspend {
@@ -106,8 +162,7 @@ class SubsonicDataSource(
         ).toRequestStatus {
             ActivityTab(
                 "most_played_albums",
-                LocalizedString(
-                    "Most played albums",
+                LocalizedString.StringResIdLocalizedString(
                     R.string.activity_most_played_albums,
                 ),
                 album.sortedByDescending { it.playCount }.map { it.toMediaItem() }
@@ -120,8 +175,7 @@ class SubsonicDataSource(
         ).toRequestStatus {
             ActivityTab(
                 "random_albums",
-                LocalizedString(
-                    "Random albums",
+                LocalizedString.StringResIdLocalizedString(
                     R.string.activity_random_albums,
                 ),
                 album.map { it.toMediaItem() }
@@ -131,8 +185,7 @@ class SubsonicDataSource(
         val randomSongs = subsonicClient.getRandomSongs(20).toRequestStatus {
             ActivityTab(
                 "random_songs",
-                LocalizedString(
-                    "Random songs",
+                LocalizedString.StringResIdLocalizedString(
                     R.string.activity_random_songs,
                 ),
                 song.map { it.toMediaItem() }
@@ -283,7 +336,7 @@ class SubsonicDataSource(
 
         if (exists) {
             RequestStatus.Success<_, MediaError>(
-                Genre(genreUri, genreName) to GenreContent(
+                Genre.Builder(genreUri).setName(genreName).build() to GenreContent(
                     appearsInAlbums.orEmpty(),
                     listOf(),
                     audios.orEmpty(),
@@ -373,54 +426,63 @@ class SubsonicDataSource(
     override suspend fun onAudioPlayed(audioUri: Uri) = lastPlayedSetter(lastPlayedKey(), audioUri)
         .let { RequestStatus.Success<Unit, MediaError>(Unit) }
 
-    private fun AlbumID3.toMediaItem() = Album(
-        uri = getAlbumUri(id),
-        title = name,
-        artistUri = artistId?.let { getArtistUri(it) } ?: Uri.EMPTY,
-        artistName = artist,
-        year = year,
-        thumbnail = Thumbnail(
-            uri = Uri.parse(subsonicClient.getCoverArt(id)),
-            type = Thumbnail.Type.FRONT_COVER,
+    private fun AlbumID3.toMediaItem() = Album.Builder(getAlbumUri(id))
+        .setThumbnail(
+            Thumbnail.Builder()
+                .setUri(Uri.parse(subsonicClient.getCoverArt(id)))
+                .setType(Thumbnail.Type.FRONT_COVER)
+                .build()
         )
-    )
+        .setTitle(name)
+        .setArtistUri(artistId?.let { getArtistUri(it) })
+        .setArtistName(artist)
+        .setYear(year)
+        .build()
 
-    private fun ArtistID3.toMediaItem() = Artist(
-        uri = getArtistUri(id),
-        name = name,
-        thumbnail = Thumbnail(
-            uri = Uri.parse(subsonicClient.getCoverArt(id)),
-            type = Thumbnail.Type.BAND_ARTIST_LOGO,
+    private fun ArtistID3.toMediaItem() = Artist.Builder(getArtistUri(id))
+        .setThumbnail(
+            Thumbnail.Builder()
+                .setUri(Uri.parse(subsonicClient.getCoverArt(id)))
+                .setType(Thumbnail.Type.BAND_ARTIST_LOGO)
+                .build()
         )
-    )
+        .setName(name)
+        .build()
 
-    private fun Child.toMediaItem() = Audio(
-        uri = getAudioUri(id),
-        playbackUri = Uri.parse(subsonicClient.stream(id)),
-        mimeType = contentType ?: "",
-        title = title,
-        type = type.toAudioType(),
-        durationMs = (duration?.toLong()?.let { it * 1000 }) ?: 0,
-        artistUri = artistId?.let { getArtistUri(it) } ?: Uri.EMPTY,
-        artistName = artist,
-        albumUri = albumId?.let { getAlbumUri(it) } ?: Uri.EMPTY,
-        albumTitle = album,
-        discNumber = discNumber,
-        trackNumber = track,
-        genreUri = genre?.let { getGenreUri(it) },
-        genreName = genre,
-        year = year,
-    )
+    private fun Child.toMediaItem() = Audio.Builder(getAudioUri(id))
+        .setThumbnail(
+            albumId?.let {
+                Thumbnail.Builder()
+                    .setUri(Uri.parse(subsonicClient.getCoverArt(it)))
+                    .setType(Thumbnail.Type.FRONT_COVER)
+                    .build()
+            }
+        )
+        .setPlaybackUri(Uri.parse(subsonicClient.stream(id)))
+        .setMimeType(contentType)
+        .setTitle(title)
+        .setType(type.toAudioType())
+        .setDurationMs(duration?.toLong()?.let { it * 1000 })
+        .setArtistUri(artistId?.let { getArtistUri(it) })
+        .setArtistName(artist)
+        .setAlbumUri(albumId?.let { getAlbumUri(it) })
+        .setAlbumTitle(album)
+        .setDiscNumber(discNumber)
+        .setTrackNumber(track)
+        .setGenreUri(genre?.let { getGenreUri(it) })
+        .setGenreName(genre)
+        .setYear(year)
+        .build()
 
-    private fun org.lineageos.twelve.datasources.subsonic.models.Genre.toMediaItem() = Genre(
-        uri = getGenreUri(value),
-        name = value,
-    )
+    private fun org.lineageos.twelve.datasources.subsonic.models.Genre.toMediaItem() =
+        Genre.Builder(getGenreUri(value))
+            .setName(value)
+            .build()
 
-    private fun org.lineageos.twelve.datasources.subsonic.models.Playlist.toMediaItem() = Playlist(
-        uri = getPlaylistUri(id),
-        name = name,
-    )
+    private fun org.lineageos.twelve.datasources.subsonic.models.Playlist.toMediaItem() =
+        Playlist.Builder(getPlaylistUri(id))
+            .setName(name)
+            .build()
 
     private fun org.lineageos.twelve.datasources.subsonic.models.MediaType?.toAudioType() = when (
         this
@@ -493,6 +555,7 @@ class SubsonicDataSource(
         reverse: Boolean,
         selector: ((T) -> Comparable<*>?)?,
     ) = selector?.let {
+        @Suppress("UNCHECKED_CAST")
         sortedBy { t -> it(t) as? Comparable<Any?> }.asMaybeReversed(reverse)
     } ?: this
 

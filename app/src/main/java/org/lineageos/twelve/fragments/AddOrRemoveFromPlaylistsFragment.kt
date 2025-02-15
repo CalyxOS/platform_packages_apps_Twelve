@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 The LineageOS Project
+ * SPDX-FileCopyrightText: 2024-2025 The LineageOS Project
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -28,10 +28,10 @@ import kotlinx.coroutines.launch
 import org.lineageos.twelve.R
 import org.lineageos.twelve.ext.getParcelable
 import org.lineageos.twelve.ext.getViewProperty
+import org.lineageos.twelve.ext.navigateSafe
 import org.lineageos.twelve.ext.setProgressCompat
 import org.lineageos.twelve.models.Playlist
 import org.lineageos.twelve.models.RequestStatus
-import org.lineageos.twelve.ui.dialogs.EditTextMaterialAlertDialogBuilder
 import org.lineageos.twelve.ui.recyclerview.SimpleListAdapter
 import org.lineageos.twelve.ui.views.FullscreenLoadingProgressBar
 import org.lineageos.twelve.ui.views.ListItem
@@ -55,39 +55,41 @@ class AddOrRemoveFromPlaylistsFragment : Fragment(R.layout.fragment_add_or_remov
     private val toolbar by getViewProperty<MaterialToolbar>(R.id.toolbar)
 
     // Recyclerview
-    private val addNewPlaylistItem = Pair(Playlist(Uri.EMPTY, ""), false)
+    private val addNewPlaylistItem = Pair(Playlist.Builder(Uri.EMPTY).build(), false)
     private val adapter by lazy {
         object : SimpleListAdapter<Pair<Playlist, Boolean>, ListItem>(
             diffCallback,
             ::ListItem,
         ) {
-            override fun ViewHolder.onPrepareView() {
-                view.setOnClickListener {
-                    item?.let {
-                        when (it === addNewPlaylistItem) {
-                            true -> openCreateNewPlaylistDialog()
-                            false -> viewLifecycleOwner.lifecycleScope.launch {
-                                fullscreenLoadingProgressBar.withProgress {
-                                    when (it.second) {
-                                        true -> viewModel.removeFromPlaylist(it.first.uri)
-                                        false -> viewModel.addToPlaylist(it.first.uri)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
             override fun ViewHolder.onBindView(item: Pair<Playlist, Boolean>) {
                 when (item === addNewPlaylistItem) {
                     true -> {
+                        view.setOnClickListener {
+                            findNavController().navigateSafe(
+                                R.id.action_addOrRemoveFromPlaylistsFragment_to_fragment_create_playlist_dialog,
+                                CreatePlaylistDialogFragment.createBundle(
+                                    providerIdentifier = viewModel.providerOfAudio.value,
+                                )
+                            )
+                        }
+
                         view.setLeadingIconImage(R.drawable.ic_playlist_add)
                         view.setHeadlineText(R.string.create_playlist)
                         view.trailingIconImage = null
                     }
 
                     false -> {
+                        view.setOnClickListener {
+                            viewLifecycleOwner.lifecycleScope.launch {
+                                fullscreenLoadingProgressBar.withProgress {
+                                    when (item.second) {
+                                        true -> viewModel.removeFromPlaylist(item.first.uri)
+                                        false -> viewModel.addToPlaylist(item.first.uri)
+                                    }
+                                }
+                            }
+                        }
+
                         view.setLeadingIconImage(R.drawable.ic_playlist_play)
                         view.headlineText = item.first.name
                         view.setTrailingIconImage(
@@ -120,7 +122,12 @@ class AddOrRemoveFromPlaylistsFragment : Fragment(R.layout.fragment_add_or_remov
         recyclerView.adapter = adapter
 
         createNewPlaylistButton.setOnClickListener {
-            openCreateNewPlaylistDialog()
+            findNavController().navigateSafe(
+                R.id.action_addOrRemoveFromPlaylistsFragment_to_fragment_create_playlist_dialog,
+                CreatePlaylistDialogFragment.createBundle(
+                    providerIdentifier = viewModel.providerOfAudio.value,
+                )
+            )
         }
 
         viewModel.loadAudio(audioUri)
@@ -176,20 +183,6 @@ class AddOrRemoveFromPlaylistsFragment : Fragment(R.layout.fragment_add_or_remov
                 }
             }
         }
-    }
-
-    private fun openCreateNewPlaylistDialog() {
-        EditTextMaterialAlertDialogBuilder(requireContext())
-            .setPositiveButton(R.string.create_playlist_confirm) { text ->
-                viewLifecycleOwner.lifecycleScope.launch {
-                    fullscreenLoadingProgressBar.withProgress {
-                        viewModel.createPlaylist(text)
-                    }
-                }
-            }
-            .setTitle(R.string.create_playlist)
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
     }
 
     companion object {
