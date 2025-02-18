@@ -7,6 +7,7 @@ package org.lineageos.twelve.services
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.content.res.Resources
 import android.media.audiofx.AudioEffect
 import android.os.Bundle
 import android.os.IBinder
@@ -25,6 +26,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaController
@@ -42,22 +44,24 @@ import org.lineageos.twelve.R
 import org.lineageos.twelve.TwelveApplication
 import org.lineageos.twelve.ext.enableFloatOutput
 import org.lineageos.twelve.ext.enableOffload
+import org.lineageos.twelve.ext.next
 import org.lineageos.twelve.ext.setOffloadEnabled
 import org.lineageos.twelve.ext.skipSilence
 import org.lineageos.twelve.ext.stopPlaybackOnTaskRemoved
+import org.lineageos.twelve.ext.typedRepeatMode
+import org.lineageos.twelve.models.RepeatMode
 import org.lineageos.twelve.ui.widgets.NowPlayingAppWidgetProvider
-import kotlin.reflect.cast
 
 @OptIn(UnstableApi::class)
 class PlaybackService : MediaLibraryService(), LifecycleOwner {
-    enum class CustomCommand(val value: String, extras: Bundle) {
+    enum class CustomCommand {
         /**
          * Toggles audio offload mode.
          *
          * Arguments:
          * - [ARG_VALUE] ([Boolean]): Whether to enable or disable offload
          */
-        TOGGLE_OFFLOAD("toggle_offload", Bundle.EMPTY),
+        TOGGLE_OFFLOAD,
 
         /**
          * Toggles skip silence.
@@ -65,7 +69,7 @@ class PlaybackService : MediaLibraryService(), LifecycleOwner {
          * Arguments:
          * - [ARG_VALUE] ([Boolean]): Whether to enable or disable skip silence
          */
-        TOGGLE_SKIP_SILENCE("toggle_skip_silence", Bundle.EMPTY),
+        TOGGLE_SKIP_SILENCE,
 
         /**
          * Get the audio session ID.
@@ -73,9 +77,68 @@ class PlaybackService : MediaLibraryService(), LifecycleOwner {
          * Response:
          * - [RSP_VALUE] ([Int]): The audio session ID
          */
-        GET_AUDIO_SESSION_ID("get_audio_session_id", Bundle.EMPTY);
+        GET_AUDIO_SESSION_ID,
 
-        val sessionCommand = SessionCommand(value, extras)
+        /**
+         * Toggle shuffle mode.
+         *
+         * Arguments:
+         * - [ARG_VALUE] ([Boolean]): Whether to enable or disable shuffle mode
+         */
+        TOGGLE_SHUFFLE {
+            override fun buildCommandButton(
+                player: ExoPlayer,
+                resources: Resources,
+            ) = player.shuffleModeEnabled.let { shuffleModeEnabled ->
+                val (icon, titleStringResId) = when (shuffleModeEnabled) {
+                    true -> CommandButton.ICON_SHUFFLE_ON to R.string.shuffle_on
+                    false -> CommandButton.ICON_SHUFFLE_OFF to R.string.shuffle_off
+                }
+
+                CommandButton.Builder(icon)
+                    .setDisplayName(resources.getString(titleStringResId))
+                    .setSessionCommand(
+                        SessionCommand(
+                            name,
+                            bundleOf(ARG_VALUE to !shuffleModeEnabled),
+                        )
+                    )
+                    .build()
+            }
+        },
+
+        /**
+         * Toggle repeat mode.
+         *
+         * Arguments:
+         * - [ARG_VALUE] ([String]): The repeat mode
+         */
+        TOGGLE_REPEAT {
+            override fun buildCommandButton(
+                player: ExoPlayer,
+                resources: Resources,
+            ) = player.typedRepeatMode.let { repeatMode ->
+                val (icon, titleStringResId) = when (repeatMode) {
+                    RepeatMode.NONE -> CommandButton.ICON_REPEAT_OFF to R.string.repeat_off
+                    RepeatMode.ALL -> CommandButton.ICON_REPEAT_ALL to R.string.repeat_all
+                    RepeatMode.ONE -> CommandButton.ICON_REPEAT_ONE to R.string.repeat_one
+                }
+
+                CommandButton.Builder(icon)
+                    .setDisplayName(resources.getString(titleStringResId))
+                    .setSessionCommand(
+                        SessionCommand(
+                            name,
+                            bundleOf(ARG_VALUE to repeatMode.next().name),
+                        )
+                    )
+                    .build()
+            }
+        };
+
+        val sessionCommand = SessionCommand(name, Bundle.EMPTY)
+
+        open fun buildCommandButton(player: ExoPlayer, resources: Resources): CommandButton? = null
 
         companion object {
             const val ARG_VALUE = "value"
@@ -83,7 +146,7 @@ class PlaybackService : MediaLibraryService(), LifecycleOwner {
 
             fun fromCustomAction(
                 customAction: String
-            ) = entries.firstOrNull { it.value == customAction }
+            ) = entries.firstOrNull { it.name == customAction }
 
             suspend fun MediaController.sendCustomCommand(
                 customCommand: CustomCommand,
@@ -96,9 +159,8 @@ class PlaybackService : MediaLibraryService(), LifecycleOwner {
     override val lifecycle: Lifecycle
         get() = dispatcher.lifecycle
 
-    private val player: ExoPlayer
-        get() = mediaLibrarySession?.player as ExoPlayer
-    private var mediaLibrarySession: MediaLibrarySession? = null
+    private lateinit var player: ExoPlayer
+    private lateinit var mediaLibrarySession: MediaLibrarySession
 
     private val mediaRepositoryTree by lazy {
         MediaRepositoryTree(
@@ -173,10 +235,21 @@ class PlaybackService : MediaLibraryService(), LifecycleOwner {
                 }
             }.filterNotNull()
 
-            // Shouldn't be needed, but just to be sure
-            startIndex = startIndex.coerceIn(0, mediaItems.size - 1)
+            if (mediaItems.isEmpty()) {
+                // No valid media items found, clear the resumption playlist
+                resumptionPlaylistRepository.clearResumptionPlaylist()
 
-            MediaSession.MediaItemsWithStartPosition(mediaItems, startIndex, startPositionMs)
+                MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0)
+            } else {
+                // Shouldn't be needed, but just to be sure
+                startIndex = startIndex.coerceIn(mediaItems.indices)
+
+                MediaSession.MediaItemsWithStartPosition(
+                    mediaItems,
+                    startIndex,
+                    startPositionMs
+                )
+            }
         }
 
         override fun onGetLibraryRoot(
@@ -274,7 +347,7 @@ class PlaybackService : MediaLibraryService(), LifecycleOwner {
             when (CustomCommand.fromCustomAction(customCommand.customAction)) {
                 CustomCommand.TOGGLE_OFFLOAD -> {
                     args.getBoolean(CustomCommand.ARG_VALUE).let {
-                        mediaLibrarySession?.player?.setOffloadEnabled(it)
+                        player.setOffloadEnabled(it)
                     }
 
                     SessionResult(SessionResult.RESULT_SUCCESS)
@@ -282,7 +355,7 @@ class PlaybackService : MediaLibraryService(), LifecycleOwner {
 
                 CustomCommand.TOGGLE_SKIP_SILENCE -> {
                     args.getBoolean(CustomCommand.ARG_VALUE).let {
-                        ExoPlayer::class.cast(mediaLibrarySession?.player).skipSilenceEnabled = it
+                        player.skipSilenceEnabled = it
                     }
 
                     SessionResult(SessionResult.RESULT_SUCCESS)
@@ -293,6 +366,22 @@ class PlaybackService : MediaLibraryService(), LifecycleOwner {
                         SessionResult.RESULT_SUCCESS,
                         bundleOf(CustomCommand.RSP_VALUE to audioSessionId),
                     )
+                }
+
+                CustomCommand.TOGGLE_SHUFFLE -> {
+                    args.getBoolean(CustomCommand.ARG_VALUE).let {
+                        player.shuffleModeEnabled = it
+                    }
+
+                    SessionResult(SessionResult.RESULT_SUCCESS)
+                }
+
+                CustomCommand.TOGGLE_REPEAT -> {
+                    args.getString(CustomCommand.ARG_VALUE)?.let {
+                        player.typedRepeatMode = RepeatMode.valueOf(it)
+                    }
+
+                    SessionResult(SessionResult.RESULT_SUCCESS)
                 }
 
                 null -> SessionResult(SessionError.ERROR_NOT_SUPPORTED)
@@ -309,7 +398,7 @@ class PlaybackService : MediaLibraryService(), LifecycleOwner {
             .setUsage(C.USAGE_MEDIA)
             .build()
 
-        val exoPlayer = ExoPlayer.Builder(this)
+        player = ExoPlayer.Builder(this)
             .setAudioAttributes(audioAttributes, true)
             .setHandleAudioBecomingNoisy(true)
             .setRenderersFactory(
@@ -329,16 +418,18 @@ class PlaybackService : MediaLibraryService(), LifecycleOwner {
                     )
                     .build()
             )
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .experimentalSetDynamicSchedulingEnabled(true)
             .build()
 
-        exoPlayer.setOffloadEnabled(sharedPreferences.enableOffload)
+        player.setOffloadEnabled(sharedPreferences.enableOffload)
 
         mediaLibrarySession = MediaLibrarySession.Builder(
-            this, exoPlayer, mediaLibrarySessionCallback
+            this, player, mediaLibrarySessionCallback
         )
-            .setBitmapLoader(CoilBitmapLoader(this))
+            .setBitmapLoader(CoilBitmapLoader(this, lifecycleScope))
             .setSessionActivity(getSingleTopActivity())
+            .setCustomLayout(getCustomLayout())
             .build()
 
         setMediaNotificationProvider(
@@ -349,11 +440,11 @@ class PlaybackService : MediaLibraryService(), LifecycleOwner {
                 }
         )
 
-        exoPlayer.audioSessionId = audioSessionId
+        player.audioSessionId = audioSessionId
         openAudioEffectSession()
 
         lifecycleScope.launch {
-            exoPlayer.listen { events ->
+            player.listen { events ->
                 // Update startIndex and startPositionMs in resumption playlist.
                 if (events.containsAny(Player.EVENT_MEDIA_ITEM_TRANSITION)) {
                     lifecycleScope.launch {
@@ -380,6 +471,15 @@ class PlaybackService : MediaLibraryService(), LifecycleOwner {
                     lifecycleScope.launch {
                         NowPlayingAppWidgetProvider.update(this@PlaybackService)
                     }
+                }
+
+                // Update the shuffle and repeat buttons
+                if (events.containsAny(
+                        Player.EVENT_REPEAT_MODE_CHANGED,
+                        Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED
+                    )
+                ) {
+                    mediaLibrarySession.setCustomLayout(getCustomLayout())
                 }
             }
         }
@@ -414,9 +514,8 @@ class PlaybackService : MediaLibraryService(), LifecycleOwner {
 
         closeAudioEffectSession()
 
-        mediaLibrarySession?.player?.release()
-        mediaLibrarySession?.release()
-        mediaLibrarySession = null
+        player.release()
+        mediaLibrarySession.release()
 
         super.onDestroy()
     }
@@ -449,4 +548,8 @@ class PlaybackService : MediaLibraryService(), LifecycleOwner {
         },
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
+
+    private fun getCustomLayout() = CustomCommand.entries.mapNotNull {
+        it.buildCommandButton(player, resources)
+    }
 }
