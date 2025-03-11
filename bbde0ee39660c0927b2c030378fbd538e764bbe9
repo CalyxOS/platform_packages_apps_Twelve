@@ -22,6 +22,30 @@
       },
       "revId": "bbde0ee39660c0927b2c030378fbd538e764bbe9",
       "serverId": "35266860-6252-469c-a67d-185064479fc0"
+    },
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "5b2fc095_9b87aa2c",
+        "filename": "/COMMIT_MSG",
+        "patchSetId": 2
+      },
+      "lineNbr": 10,
+      "author": {
+        "id": 1000062
+      },
+      "writtenOn": "2025-03-11T18:23:03Z",
+      "side": 1,
+      "message": "This change is working, *but* when I decompiled the apk, it still shows 1.13.0-alpha08 in META-INF/com.google.android.material_material.version! So maybe the fix is just including graphics-shapes?",
+      "parentUuid": "ab5e61f0_fb8ebd17",
+      "range": {
+        "startLine": 9,
+        "startChar": 0,
+        "endLine": 10,
+        "endChar": 34
+      },
+      "revId": "bbde0ee39660c0927b2c030378fbd538e764bbe9",
+      "serverId": "35266860-6252-469c-a67d-185064479fc0"
     }
   ]
 }
