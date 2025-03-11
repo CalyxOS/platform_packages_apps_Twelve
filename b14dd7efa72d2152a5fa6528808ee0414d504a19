@@ -16,6 +16,24 @@
       "message": "Same crash as usual",
       "revId": "b14dd7efa72d2152a5fa6528808ee0414d504a19",
       "serverId": "35266860-6252-469c-a67d-185064479fc0"
+    },
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "a598d661_36b90f33",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 4
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 1000062
+      },
+      "writtenOn": "2025-03-11T20:00:41Z",
+      "side": 1,
+      "message": "Done",
+      "parentUuid": "cdb83f9d_8a6787ed",
+      "revId": "b14dd7efa72d2152a5fa6528808ee0414d504a19",
+      "serverId": "35266860-6252-469c-a67d-185064479fc0"
     }
   ]
 }
