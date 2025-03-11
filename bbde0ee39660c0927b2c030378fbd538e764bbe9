@@ -46,6 +46,30 @@
       },
       "revId": "bbde0ee39660c0927b2c030378fbd538e764bbe9",
       "serverId": "35266860-6252-469c-a67d-185064479fc0"
+    },
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "692221df_36e0a3ef",
+        "filename": "/COMMIT_MSG",
+        "patchSetId": 2
+      },
+      "lineNbr": 10,
+      "author": {
+        "id": 1000062
+      },
+      "writtenOn": "2025-03-11T18:25:28Z",
+      "side": 1,
+      "message": "(Btw, this *could* mean there is something wrong with generateBp or related, if the version we specify isn\u0027t being used even when it\u0027s newer. But this system is surprisingly complex, so it could be something I\u0027m doing wrong or something else entirely.)",
+      "parentUuid": "5b2fc095_9b87aa2c",
+      "range": {
+        "startLine": 9,
+        "startChar": 0,
+        "endLine": 10,
+        "endChar": 34
+      },
+      "revId": "bbde0ee39660c0927b2c030378fbd538e764bbe9",
+      "serverId": "35266860-6252-469c-a67d-185064479fc0"
     }
   ]
 }
