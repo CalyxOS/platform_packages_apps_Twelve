@@ -69,7 +69,6 @@ dependencies {
     implementation(libs.androidx.constraintlayout)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.fragment.ktx)
-    implementation(libs.androidx.graphics.shapes)
     implementation(libs.androidx.lifecycle.service)
     implementation(libs.androidx.media3.common.ktx)
     implementation(libs.androidx.media3.exoplayer)
@@ -109,9 +108,7 @@ configure<GenerateBpPluginExtension> {
         when {
             module.group.startsWith("androidx") -> {
                 // We provide our own androidx.media3
-                !module.group.startsWith("androidx.media3") &&
-                // and androidx.graphics
-                !module.group.startsWith("androidx.graphics")
+                !module.group.startsWith("androidx.media3")
             }
             module.group.startsWith("org.jetbrains") -> true
             module.group == "com.google.auto.value" -> true
