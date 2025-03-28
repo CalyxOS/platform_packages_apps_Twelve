@@ -7,6 +7,8 @@ package org.lineageos.twelve.services
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
+import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import kotlinx.coroutines.flow.Flow
@@ -19,7 +21,8 @@ import org.lineageos.twelve.models.MediaType
 import org.lineageos.twelve.models.Provider
 import org.lineageos.twelve.models.ProviderIdentifier
 import org.lineageos.twelve.models.ProviderType
-import org.lineageos.twelve.models.RequestStatus
+import org.lineageos.twelve.models.Result
+import org.lineageos.twelve.models.Result.Companion.getOrNull
 import org.lineageos.twelve.repositories.MediaRepository
 import org.lineageos.twelve.utils.PermissionsUtils
 
@@ -251,10 +254,18 @@ class MediaRepositoryTree(
     /**
      * Given a list of media items, gets an equivalent list of items that can be passed to the
      * player. This should be used with onAddMediaItems and onSetMediaItems.
-     * TODO: [MediaItem.requestMetadata] support.
      */
-    suspend fun resolveMediaItems(mediaItems: List<MediaItem>) = mediaItems.mapNotNull {
-        it.takeIf { it.localConfiguration?.uri != null } ?: getItem(it.mediaId)
+    suspend fun resolveMediaItems(mediaItems: List<MediaItem>) = buildList {
+        mediaItems.forEach { item ->
+            val searchQuery = item.requestMetadata.searchQuery
+            when {
+                searchQuery != null -> addAll(search(searchQuery))
+                item.localConfiguration?.uri != null -> add(item)
+                else -> getItem(item.mediaId)?.let { mediaItem ->
+                    add(mediaItem)
+                }
+            }
+        }
     }
 
     /**
@@ -265,10 +276,27 @@ class MediaRepositoryTree(
     }
 
     /**
+     * Set the favorite status of a media item. Note that it will only work for audio items.
+     *
+     * @param mediaId The media ID of the item
+     * @param isFavorite The new favorite status
+     * @return Whether the operation was successful
+     */
+    suspend fun setFavorite(
+        mediaId: String,
+        isFavorite: Boolean,
+    ) = mediaIdToMediaItemUri(mediaId)?.let {
+        when (mediaItemUriToMediaType(it)) {
+            MediaType.AUDIO -> repository.setFavorite(it, isFavorite).getOrNull()
+            else -> null
+        }
+    }?.let { true } ?: false
+
+    /**
      * Convert this media ID to a [Uri] if valid.
      */
     private fun mediaIdToMediaItemUri(mediaId: String) = runCatching {
-        Uri.parse(mediaId)
+        mediaId.toUri()
     }.getOrNull()
 
     private suspend fun mediaItemUriToMediaType(
@@ -313,6 +341,8 @@ class MediaRepositoryTree(
     }
 
     companion object {
+        private val LOG_TAG = MediaRepositoryTree::class.simpleName!!
+
         // Root ID
         private const val ROOT_MEDIA_ITEM_ID = "[root]"
 
@@ -334,23 +364,19 @@ class MediaRepositoryTree(
         private const val PROVIDER_CHANGED_MEDIA_ITEM_ID = "[provider_changed]"
 
         /**
-         * Converts a flow of [RequestStatus] to a one-shot result of [T].
-         * Raises an exception on error.
+         * Converts a flow of [Result] to a one-shot result of [T].
+         * On success, returns the data.
+         * On error, logs the exception and returns null.
          */
-        private suspend fun <T, E> Flow<RequestStatus<T, E>>.toOneShotResult() = mapNotNull {
-            when (it) {
-                is RequestStatus.Loading -> {
-                    null
+        private suspend fun <T, E> Flow<Result<T, E>>.toOneShotResult() =
+            mapNotNull { status ->
+                when (status) {
+                    is Result.Success -> status.data
+                    is Result.Error -> {
+                        Log.e(LOG_TAG, "Failed to get data", status.throwable)
+                        null
+                    }
                 }
-
-                is RequestStatus.Success -> {
-                    it.data
-                }
-
-                is RequestStatus.Error -> throw Exception(
-                    "Error while loading data, ${it.error}"
-                )
-            }
-        }.first()
+            }.first()
     }
 }

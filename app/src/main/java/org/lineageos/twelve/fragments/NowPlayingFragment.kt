@@ -13,6 +13,7 @@ import android.icu.text.DecimalFormat
 import android.icu.text.DecimalFormatSymbols
 import android.media.audiofx.AudioEffect
 import android.os.Bundle
+import android.util.Log
 import android.view.SurfaceView
 import android.view.View
 import android.view.animation.LinearInterpolator
@@ -45,10 +46,11 @@ import org.lineageos.twelve.ext.getViewProperty
 import org.lineageos.twelve.ext.loadThumbnail
 import org.lineageos.twelve.ext.navigateSafe
 import org.lineageos.twelve.ext.updatePadding
-import org.lineageos.twelve.models.MediaType
+import org.lineageos.twelve.models.FlowResult
+import org.lineageos.twelve.models.FlowResult.Companion.getOrNull
 import org.lineageos.twelve.models.PlaybackState
 import org.lineageos.twelve.models.RepeatMode
-import org.lineageos.twelve.models.RequestStatus
+import org.lineageos.twelve.models.Result
 import org.lineageos.twelve.ui.visualizer.VisualizerNVDataSource
 import org.lineageos.twelve.utils.PermissionsChecker
 import org.lineageos.twelve.utils.PermissionsUtils
@@ -72,21 +74,27 @@ class NowPlayingFragment : Fragment(R.layout.fragment_now_playing) {
     private val audioInformationMaterialButton by getViewProperty<MaterialButton>(R.id.audioInformationMaterialButton)
     private val audioTitleTextView by getViewProperty<TextView>(R.id.audioTitleTextView)
     private val artistNameTextView by getViewProperty<TextView>(R.id.artistNameTextView)
+    private val currentLyricsTextView by getViewProperty<TextView>(R.id.currentLyricsTextView)
     private val currentTimestampTextView by getViewProperty<TextView>(R.id.currentTimestampTextView)
     private val durationTimestampTextView by getViewProperty<TextView>(R.id.durationTimestampTextView)
     private val equalizerMaterialButton by getViewProperty<MaterialButton>(R.id.equalizerMaterialButton)
     private val fileTypeMaterialCardView by getViewProperty<MaterialCardView>(R.id.fileTypeMaterialCardView)
     private val fileTypeTextView by getViewProperty<TextView>(R.id.fileTypeTextView)
+    private val isFavoriteMaterialButton by getViewProperty<MaterialButton>(R.id.isFavoriteMaterialButton)
     private val linearProgressIndicator by getViewProperty<LinearProgressIndicator>(R.id.linearProgressIndicator)
+    private val lyricsMaterialCardView by getViewProperty<MaterialCardView>(R.id.lyricsMaterialCardView)
     private val nestedScrollView by getViewProperty<NestedScrollView>(R.id.nestedScrollView)
+    private val nextLyricsTextView by getViewProperty<TextView>(R.id.nextLyricsTextView)
     private val nextTrackMaterialButton by getViewProperty<MaterialButton>(R.id.nextTrackMaterialButton)
     private val playPauseMaterialButton by getViewProperty<MaterialButton>(R.id.playPauseMaterialButton)
     private val playbackSpeedMaterialButton by getViewProperty<MaterialButton>(R.id.playbackSpeedMaterialButton)
+    private val previousLyricsTextView by getViewProperty<TextView>(R.id.previousLyricsTextView)
     private val previousTrackMaterialButton by getViewProperty<MaterialButton>(R.id.previousTrackMaterialButton)
     private val progressSlider by getViewProperty<Slider>(R.id.progressSlider)
     private val queueMaterialButton by getViewProperty<MaterialButton>(R.id.queueMaterialButton)
     private val repeatMarkerImageView by getViewProperty<ImageView>(R.id.repeatMarkerImageView)
     private val repeatMaterialButton by getViewProperty<MaterialButton>(R.id.repeatMaterialButton)
+    private val showLyricsMaterialButton by getViewProperty<MaterialButton>(R.id.showLyricsMaterialButton)
     private val shuffleMarkerImageView by getViewProperty<ImageView>(R.id.shuffleMarkerImageView)
     private val shuffleMaterialButton by getViewProperty<MaterialButton>(R.id.shuffleMaterialButton)
     private val toolbar by getViewProperty<MaterialToolbar>(R.id.toolbar)
@@ -228,22 +236,14 @@ class NowPlayingFragment : Fragment(R.layout.fragment_now_playing) {
         }
 
         audioInformationMaterialButton.setOnClickListener {
-            when (val value = viewModel.audio.value) {
-                is RequestStatus.Success -> {
-                    val audio = value.data
-                    findNavController().navigateSafe(
-                        R.id.action_nowPlayingFragment_to_fragment_media_item_bottom_sheet_dialog,
-                        MediaItemBottomSheetDialogFragment.createBundle(
-                            audio.uri,
-                            MediaType.AUDIO,
-                            fromNowPlaying = true,
-                        )
+            viewModel.audio.value.getOrNull()?.let {
+                findNavController().navigateSafe(
+                    R.id.action_nowPlayingFragment_to_fragment_media_item_bottom_sheet_dialog,
+                    MediaItemBottomSheetDialogFragment.createBundle(
+                        it.uri,
+                        fromNowPlaying = true,
                     )
-                }
-
-                else -> {
-                    // Do nothing
-                }
+                )
             }
         }
 
@@ -269,6 +269,19 @@ class NowPlayingFragment : Fragment(R.layout.fragment_now_playing) {
             findNavController().navigateSafe(R.id.action_nowPlayingFragment_to_fragment_queue)
         }
 
+        isFavoriteMaterialButton.setOnClickListener {
+            lifecycleScope.launch {
+                isFavoriteMaterialButton.isEnabled = false
+                viewModel.toggleFavorites()
+                isFavoriteMaterialButton.isEnabled = true
+            }
+        }
+
+        // Lyrics
+        showLyricsMaterialButton.setOnClickListener {
+            findNavController().navigateSafe(R.id.action_nowPlayingFragment_to_fragment_lyrics)
+        }
+
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch {
@@ -292,8 +305,41 @@ class NowPlayingFragment : Fragment(R.layout.fragment_now_playing) {
                 }
 
                 launch {
-                    // Collect audio for add or remove from playlists button
-                    viewModel.audio.collect()
+                    viewModel.audio.collectLatest {
+                        when (it) {
+                            is FlowResult.Loading -> {
+                                // Do nothing
+                            }
+
+                            is FlowResult.Success -> {
+                                val audio = it.data
+
+                                isFavoriteMaterialButton.isVisible = true
+                                isFavoriteMaterialButton.setIconResource(
+                                    when (audio.isFavorite) {
+                                        true -> R.drawable.ic_heart_filled
+                                        false -> R.drawable.ic_heart_unfilled
+                                    }
+                                )
+                                isFavoriteMaterialButton.tooltipText = getString(
+                                    when (audio.isFavorite) {
+                                        true -> R.string.remove_from_favorites
+                                        false -> R.string.add_to_favorites
+                                    }
+                                )
+                            }
+
+                            is FlowResult.Error -> {
+                                Log.e(
+                                    LOG_TAG,
+                                    "Error while loading audio, error: ${it.error}",
+                                    it.throwable
+                                )
+
+                                isFavoriteMaterialButton.isVisible = false
+                            }
+                        }
+                    }
                 }
 
                 launch {
@@ -322,20 +368,24 @@ class NowPlayingFragment : Fragment(R.layout.fragment_now_playing) {
                 launch {
                     viewModel.mediaArtwork.collectLatest {
                         when (it) {
-                            is RequestStatus.Loading -> {
+                            null -> {
                                 // Do nothing
                             }
 
-                            is RequestStatus.Success -> {
+                            is Result.Success -> {
                                 albumArtImageView.loadThumbnail(
                                     it.data,
                                     placeholder = R.drawable.ic_music_note,
                                 )
                             }
 
-                            is RequestStatus.Error -> throw Exception(
-                                "Error while getting media artwork"
-                            )
+                            is Result.Error -> {
+                                Log.e(
+                                    LOG_TAG,
+                                    "Error while getting media artwork: ${it.error}",
+                                    it.throwable
+                                )
+                            }
                         }
                     }
                 }
@@ -490,6 +540,42 @@ class NowPlayingFragment : Fragment(R.layout.fragment_now_playing) {
                         }
                     }
                 }
+
+                launch {
+                    viewModel.lyricsLines.collectLatest {
+                        when (it) {
+                            is FlowResult.Loading -> {
+                                // Do nothing
+                            }
+
+                            is FlowResult.Success -> {
+                                val (lyrics, currentIndex) = it.data
+
+                                val index = currentIndex ?: 0
+
+                                val previousLyrics = lyrics.getOrNull(index - 1)
+                                val currentLyrics = lyrics.getOrNull(index)
+                                val nextLyrics = lyrics.getOrNull(index + 1)
+
+                                previousLyricsTextView.text = previousLyrics?.first?.text
+                                currentLyricsTextView.text = currentLyrics?.first?.text
+                                nextLyricsTextView.text = nextLyrics?.first?.text
+
+                                lyricsMaterialCardView.isVisible = true
+                            }
+
+                            is FlowResult.Error -> {
+                                Log.e(
+                                    LOG_TAG,
+                                    "Error while loading lyrics: ${it.error}",
+                                    it.throwable
+                                )
+
+                                lyricsMaterialCardView.isVisible = false
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -528,6 +614,8 @@ class NowPlayingFragment : Fragment(R.layout.fragment_now_playing) {
     }
 
     companion object {
+        private val LOG_TAG = NowPlayingFragment::class.simpleName!!
+
         private val decimalFormatSymbols = DecimalFormatSymbols(Locale.ROOT)
 
         private val playbackSpeedFormatter = DecimalFormat("0.#", decimalFormatSymbols)

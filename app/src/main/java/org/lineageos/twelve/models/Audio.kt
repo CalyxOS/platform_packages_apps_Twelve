@@ -17,7 +17,8 @@ import org.lineageos.twelve.ext.toByteArray
  * An audio.
  *
  * @param playbackUri A URI that is understood by Media3 to play the audio. If required, this can be
- *   equal to [uri] and a proper [MediaSource.Factory] can be implemented
+ *   equal to [uri] and a proper [MediaSource.Factory] can be implemented. If this field is null,
+ *   it means that currently this audio cannot be played
  * @param mimeType The MIME type of the audio
  * @param title The title of the audio
  * @param type The type of the audio
@@ -31,11 +32,12 @@ import org.lineageos.twelve.ext.toByteArray
  * @param genreUri The URI of the genre of the audio
  * @param genreName The name of the genre of the audio
  * @param year The year of release of the audio
+ * @param isFavorite Whether this audio is a favorite
  */
 data class Audio(
     override val uri: Uri,
     override val thumbnail: Thumbnail?,
-    val playbackUri: Uri,
+    val playbackUri: Uri?,
     val mimeType: String?,
     val title: String?,
     val type: Type,
@@ -49,6 +51,7 @@ data class Audio(
     val genreUri: Uri?,
     val genreName: String?,
     val year: Int?,
+    val isFavorite: Boolean,
 ) : MediaItem<Audio> {
     enum class Type(
         val media3MediaType: @MediaMetadata.MediaType Int,
@@ -93,12 +96,13 @@ data class Audio(
         Audio::genreUri,
         Audio::genreName,
         Audio::year,
+        Audio::isFavorite,
     ) == 0
 
     override fun toMedia3MediaItem(resources: Resources) = buildMediaItem(
         title = title ?: resources.getString(R.string.audio_unknown),
         mediaId = uri.toString(),
-        isPlayable = true,
+        isPlayable = playbackUri != null,
         isBrowsable = false,
         mediaType = type.media3MediaType,
         album = albumTitle,
@@ -112,6 +116,7 @@ data class Audio(
         discNumber = discNumber,
         trackNumber = trackNumber,
         durationMs = durationMs,
+        isFavorite = isFavorite,
     )
 
     class Builder(uri: Uri) : MediaItem.Builder<Builder, Audio>(uri) {
@@ -129,6 +134,7 @@ data class Audio(
         private var genreUri: Uri? = null
         private var genreName: String? = null
         private var year: Int? = null
+        private var isFavorite: Boolean = false
 
         /**
          * @see Audio.playbackUri
@@ -228,10 +234,17 @@ data class Audio(
             this.year = year
         }
 
+        /**
+         * @see Audio.isFavorite
+         */
+        fun setIsFavorite(isFavorite: Boolean) = this.also {
+            this.isFavorite = isFavorite
+        }
+
         override fun build() = Audio(
             uri = uri,
             thumbnail = thumbnail,
-            playbackUri = playbackUri ?: uri,
+            playbackUri = playbackUri,
             mimeType = mimeType,
             title = title,
             type = type,
@@ -245,6 +258,7 @@ data class Audio(
             genreUri = genreUri,
             genreName = genreName,
             year = year,
+            isFavorite = isFavorite,
         )
     }
 }

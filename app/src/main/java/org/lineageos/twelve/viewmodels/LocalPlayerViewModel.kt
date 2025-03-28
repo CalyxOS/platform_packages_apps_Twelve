@@ -21,9 +21,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import org.lineageos.twelve.ext.applicationContext
 import org.lineageos.twelve.ext.availableCommandsFlow
+import org.lineageos.twelve.ext.eventsFlow
 import org.lineageos.twelve.ext.isPlayingFlow
 import org.lineageos.twelve.ext.mediaMetadataFlow
 import org.lineageos.twelve.ext.next
@@ -35,10 +37,12 @@ import org.lineageos.twelve.ext.shuffleModeEnabled
 import org.lineageos.twelve.ext.shuffleModeFlow
 import org.lineageos.twelve.ext.toThumbnail
 import org.lineageos.twelve.ext.typedRepeatMode
+import org.lineageos.twelve.models.Error
+import org.lineageos.twelve.models.FlowResult
 import org.lineageos.twelve.models.PlaybackProgress
 import org.lineageos.twelve.models.PlaybackState
 import org.lineageos.twelve.models.RepeatMode
-import org.lineageos.twelve.models.RequestStatus
+import org.lineageos.twelve.models.Thumbnail
 
 /**
  * A view model useful to playback stuff locally (not in the playback service).
@@ -73,10 +77,18 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
         .setHandleAudioBecomingNoisy(true)
         .build()
 
-    private val playbackState = exoPlayer.playbackStateFlow()
+    private val eventsFlow = exoPlayer.eventsFlow()
+        .flowOn(Dispatchers.Main)
+        .shareIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(),
+            replay = 1
+        )
+
+    private val playbackState = exoPlayer.playbackStateFlow(eventsFlow)
         .flowOn(Dispatchers.Main)
 
-    val mediaMetadata = exoPlayer.mediaMetadataFlow()
+    val mediaMetadata = exoPlayer.mediaMetadataFlow(eventsFlow)
         .flowOn(Dispatchers.Main)
         .stateIn(
             viewModelScope,
@@ -84,7 +96,7 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
             initialValue = MediaMetadata.EMPTY
         )
 
-    val isPlaying = exoPlayer.isPlayingFlow()
+    val isPlaying = exoPlayer.isPlayingFlow(eventsFlow)
         .flowOn(Dispatchers.Main)
         .stateIn(
             viewModelScope,
@@ -92,7 +104,7 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
             initialValue = false
         )
 
-    val shuffleMode = exoPlayer.shuffleModeFlow()
+    val shuffleMode = exoPlayer.shuffleModeFlow(eventsFlow)
         .flowOn(Dispatchers.Main)
         .stateIn(
             viewModelScope,
@@ -100,7 +112,7 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
             initialValue = false
         )
 
-    val repeatMode = exoPlayer.repeatModeFlow()
+    val repeatMode = exoPlayer.repeatModeFlow(eventsFlow)
         .flowOn(Dispatchers.Main)
         .stateIn(
             viewModelScope,
@@ -113,18 +125,20 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
         playbackState,
     ) { mediaMetadata, playbackState ->
         when (playbackState) {
-            PlaybackState.BUFFERING -> RequestStatus.Loading()
-            else -> RequestStatus.Success<_, Nothing>(mediaMetadata.toThumbnail(applicationContext))
+            PlaybackState.BUFFERING -> FlowResult.Loading()
+            else -> mediaMetadata.toThumbnail(applicationContext)?.let {
+                FlowResult.Success<Thumbnail, Error>(it)
+            } ?: FlowResult.Error(Error.NOT_FOUND)
         }
     }
         .flowOn(Dispatchers.IO)
         .stateIn(
             viewModelScope,
             started = SharingStarted.WhileSubscribed(),
-            initialValue = RequestStatus.Loading()
+            initialValue = FlowResult.Loading()
         )
 
-    val playbackProgress = exoPlayer.playbackProgressFlow()
+    val playbackProgress = exoPlayer.playbackProgressFlow(eventsFlow)
         .flowOn(Dispatchers.Main)
         .stateIn(
             viewModelScope,
@@ -132,7 +146,7 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
             initialValue = PlaybackProgress.EMPTY
         )
 
-    val playbackParameters = exoPlayer.playbackParametersFlow()
+    val playbackParameters = exoPlayer.playbackParametersFlow(eventsFlow)
         .flowOn(Dispatchers.Main)
         .stateIn(
             viewModelScope,
@@ -140,7 +154,7 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
             initialValue = PlaybackParameters.DEFAULT
         )
 
-    val availableCommands = exoPlayer.availableCommandsFlow()
+    val availableCommands = exoPlayer.availableCommandsFlow(eventsFlow)
         .flowOn(Dispatchers.Main)
         .stateIn(
             viewModelScope,

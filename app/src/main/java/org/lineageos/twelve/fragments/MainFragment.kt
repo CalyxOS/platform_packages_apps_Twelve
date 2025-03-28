@@ -15,6 +15,7 @@ import androidx.activity.BackEventCompat
 import androidx.activity.OnBackPressedCallback
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.get
 import androidx.core.view.isVisible
 import androidx.core.widget.addTextChangedListener
 import androidx.fragment.app.Fragment
@@ -46,10 +47,11 @@ import org.lineageos.twelve.ext.updatePadding
 import org.lineageos.twelve.models.Album
 import org.lineageos.twelve.models.Artist
 import org.lineageos.twelve.models.Audio
+import org.lineageos.twelve.models.FlowResult
 import org.lineageos.twelve.models.Genre
 import org.lineageos.twelve.models.MediaItem
 import org.lineageos.twelve.models.Playlist
-import org.lineageos.twelve.models.RequestStatus
+import org.lineageos.twelve.models.Result
 import org.lineageos.twelve.models.areContentsTheSame
 import org.lineageos.twelve.models.areItemsTheSame
 import org.lineageos.twelve.ui.recyclerview.SimpleListAdapter
@@ -97,7 +99,7 @@ class MainFragment : Fragment(R.layout.fragment_main) {
                     offset += 1
                 }
 
-                navigationBarView.menu.getItem(position + offset).isChecked = true
+                navigationBarView.menu[position + offset].isChecked = true
             }
         }
     }
@@ -112,9 +114,7 @@ class MainFragment : Fragment(R.layout.fragment_main) {
                 view.setOnLongClickListener {
                     findNavController().navigateSafe(
                         R.id.action_mainFragment_to_fragment_media_item_bottom_sheet_dialog,
-                        MediaItemBottomSheetDialogFragment.createBundle(
-                            item.uri, item.mediaType
-                        )
+                        MediaItemBottomSheetDialogFragment.createBundle(item.uri)
                     )
                     true
                 }
@@ -150,9 +150,7 @@ class MainFragment : Fragment(R.layout.fragment_main) {
                         view.setOnClickListener {
                             findNavController().navigateSafe(
                                 R.id.action_mainFragment_to_fragment_media_item_bottom_sheet_dialog,
-                                MediaItemBottomSheetDialogFragment.createBundle(
-                                    item.uri, item.mediaType
-                                )
+                                MediaItemBottomSheetDialogFragment.createBundle(item.uri)
                             )
                         }
 
@@ -414,31 +412,35 @@ class MainFragment : Fragment(R.layout.fragment_main) {
                 launch {
                     viewModel.mediaArtwork.collectLatest {
                         when (it) {
-                            is RequestStatus.Loading -> {
+                            null -> {
                                 // Do nothing
                             }
 
-                            is RequestStatus.Success -> {
+                            is Result.Success -> {
                                 nowPlayingBar.updateMediaArtwork(it.data)
                             }
 
-                            is RequestStatus.Error -> throw Exception(
-                                "Error while getting media artwork"
-                            )
+                            is Result.Error -> {
+                                Log.e(
+                                    LOG_TAG,
+                                    "Error while getting media artwork: ${it.error}",
+                                    it.throwable
+                                )
+                            }
                         }
                     }
                 }
 
                 launch {
                     searchViewModel.searchResults.collectLatest {
-                        searchLinearProgressIndicator.setProgressCompat(it, true)
+                        searchLinearProgressIndicator.setProgressCompat(it)
 
                         when (it) {
-                            is RequestStatus.Loading -> {
+                            is FlowResult.Loading -> {
                                 // Do nothing
                             }
 
-                            is RequestStatus.Success -> {
+                            is FlowResult.Success -> {
                                 searchAdapter.submitList(it.data)
 
                                 val isEmpty = it.data.isEmpty()
@@ -447,7 +449,7 @@ class MainFragment : Fragment(R.layout.fragment_main) {
                                     isEmpty && searchView.editText.text.isNotEmpty()
                             }
 
-                            is RequestStatus.Error -> {
+                            is FlowResult.Error -> {
                                 Log.e(
                                     LOG_TAG,
                                     "Failed to load search results, error: ${it.error}",
