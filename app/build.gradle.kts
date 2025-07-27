@@ -25,12 +25,6 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
-
-        kapt {
-            arguments {
-                arg("room.schemaLocation", "$projectDir/schemas")
-            }
-        }
     }
 
     buildTypes {
@@ -63,6 +57,12 @@ android {
     }
 }
 
+kapt {
+    arguments {
+        arg("room.schemaLocation", "$projectDir/schemas")
+    }
+}
+
 dependencies {
     implementation(libs.androidx.activity)
     implementation(libs.androidx.appcompat)
@@ -89,11 +89,7 @@ dependencies {
     implementation(libs.androidx.viewpager2)
     implementation(libs.coil)
     implementation(libs.coil.network.okhttp)
-    implementation(libs.kotlinx.coroutines.guava) {
-        // Exclude compile time dependencies
-        exclude("com.google.j2objc", "j2objc-annotations")
-        exclude("org.checkerframework", "checker-qual")
-    }
+    implementation(libs.kotlinx.coroutines.guava)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.material)
     implementation(libs.nier.visualizer) {
@@ -113,12 +109,7 @@ configure<GenerateBpPluginExtension> {
             }
             module.group.startsWith("org.jetbrains") -> true
             module.group == "com.google.android.material" -> true
-            module.group == "com.google.auto.value" -> true
-            module.group == "com.google.code.findbugs" -> true
-            module.group == "com.google.errorprone" -> true
             module.group == "com.google.guava" -> true
-            module.group == "org.jspecify" -> true
-            module.group == "junit" -> true
             else -> false
         }
     }
